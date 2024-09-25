@@ -4,7 +4,10 @@ from psycopg2 import sql
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import httpx
+import logging
 
+logging.basicConfig(level=logging.INFO)  # You can adjust the level as needed
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
 url_search = "https://prod-backoffice.daribar.com/api/v2/products/search"
@@ -23,6 +26,7 @@ async def main_process(request: Request):
     address = request_data.get("address")  # User address
     token = request_data.get("token")  # Auth token if required
 
+    logger.info("City: %s, SKU Data: %s", encoded_city, sku_data)
     # Validate the incoming data
     if not encoded_city or not sku_data:
         return {"error": "City and SKU data are required"}
