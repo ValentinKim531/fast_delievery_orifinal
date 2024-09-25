@@ -18,7 +18,6 @@ payload = []
 
 @app.post("/best_options")
 async def main_process(request: Request):
-    #Get City hash / sku's / user address
     # Receive the front end data (city hash, sku's, user address)
     request_data = await request.json()
     encoded_city = request_data.get("city")  # Encoded city hash
@@ -27,28 +26,31 @@ async def main_process(request: Request):
     token = request_data.get("token")  # Auth token if required
 
     logger.info("City: %s, SKU Data: %s", encoded_city, sku_data)
+    
     # Validate the incoming data
     if not encoded_city or not sku_data:
         return {"error": "City and SKU data are required"}
 
-     # Assuming sku_data is a list of dictionaries with 'sku' and 'count_desired'
+    # Build the payload
     payload = [{"sku": item["sku"], "count_desired": item["count_desired"]} for item in sku_data]
 
     # Perform the search for medicines in pharmacies
-    encoded_city = "%D0%90%D0%BB%D0%BC%D0%B0%D1%82%D1%8B&sort=recommended"
-    pharmacies = find_medicines_in_pharmacies(encoded_city, payload)
+    pharmacies = await find_medicines_in_pharmacies(encoded_city, payload)
+    logger.info("Pharmacies data: %s", pharmacies)
 
     return {"pharmacies": pharmacies}
+
 
 
 def decode_city():
     return 0
 
+
 async def find_medicines_in_pharmacies(encoded_city, payload):
     async with httpx.AsyncClient() as client:
         response = await client.post(url_search, params=params_city, json=payload)
-        return response.json()  # Return list of pharmacies with required medicines
-
+        response.raise_for_status()  # Raise an error for bad responses
+        return response.json()  # Return the JSON response
 
 
 
