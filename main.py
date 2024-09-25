@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from psycopg2 import sql
-from fastapi import FastAPI, Requests
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import httpx
 
@@ -31,6 +31,7 @@ async def main_process(request: Request):
     payload = [{"sku": item["sku"], "count_desired": item["count_desired"]} for item in sku_data]
 
     # Perform the search for medicines in pharmacies
+    encoded_city = "%D0%90%D0%BB%D0%BC%D0%B0%D1%82%D1%8B&sort=recommended"
     pharmacies = find_medicines_in_pharmacies(encoded_city, payload)
 
     return {"pharmacies": pharmacies}
@@ -39,10 +40,11 @@ async def main_process(request: Request):
 def decode_city():
     return 0
 
-def find_medicines_in_pharmacies():
-    #Post request to /v2/products/search
-    response = requests.post(url_search, params=params_city, json=payload)
-    return response.json()  #Return list of pharmacies with required medicines 
+async def find_medicines_in_pharmacies(encoded_city, payload):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url_search, params=params_city, json=payload)
+        return response.json()  # Return list of pharmacies with required medicines
+
 
 
 
