@@ -7,7 +7,7 @@ import httpx
 import logging
 import math
 
-logging.basicConfig(level=logging.INFO)  # You can adjust the level as needed
+logging.basicConfig(level=logging.INFO)  
 logger = logging.getLogger(__name__)
 app = FastAPI()
 
@@ -24,12 +24,12 @@ async def main_process(request: Request):
     encoded_city = request_data.get("city")  # Encoded city hash
     sku_data = request_data.get("skus", [])  # List of SKU items
     address = request_data.get("address", {})  # User address
-    token = request_data.get("token")  # Auth token if required
 
     logger.info("City: %s, SKU Data: %s", encoded_city, sku_data)
     logger.info("Address: %s", address)
 
     #Save the latitude and longitude of user
+    user_adress = request_data.get("address", {}).get("lng")
     user_lat = request_data.get("address", {}).get("lat")
     user_lon = request_data.get("address", {}).get("lng")
     logger.info("You sure: lat: %s  lon : %s", user_lat, user_lon)
@@ -54,7 +54,8 @@ async def main_process(request: Request):
 
     closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
 
-    return {"pharmacies": closest_pharmacies}
+    result =await get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
+    return {"pharmacies": result}
 
 
 
@@ -124,16 +125,52 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return distance
 
 
-def delivery_price():
-    #POST request to /v2/products/delivery/prices
+async def get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data):
+    cheapest_option = None
+    fastest_option = None
 
-    #Check price of 3 closest pharmacies
-    #Check price of 3 Pharmacies with cheapest price 
-    return 0
+    for pharmacy in closest_pharmacies["closest_pharmacies"]:
+        # Build the POST request payload
+        payload = {
+            "items": sku_data,  # Pass the SKU data
+            "dst": {
+                "lat": user_lat,
+                "lng": user_lon
+            },
+            "source_code": pharmacy["source"]["code"]
+        }
 
-def result():
-    #Calculate cheapest total pharmacy / Calculate fastest Pharmacy
+        # Send the POST request to the external endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.post("https://prod-backoffice.daribar.com/api/v2/delivery/prices", json=payload)
+            response.raise_for_status()
+            delivery_data = response.json()  # Parse the JSON response
 
+        # Extract pricing and delivery options from the response
+        if delivery_data.get("status") == "success":
+            items_price = delivery_data["result"]["items_price"]
+            delivery_options = delivery_data["result"]["delivery"]
 
-    #Return 1 cheapest / Return 1 fastest 
-    return 0
+            # Compare for cheapest option
+            for option in delivery_options:
+                total_price = items_price + option["price"]  # Item price + delivery price
+                if cheapest_option is None or total_price < cheapest_option["total_price"]:
+                    cheapest_option = {
+                        "pharmacy": pharmacy,
+                        "total_price": total_price,
+                        "delivery_option": option
+                    }
+
+                # Compare for fastest option
+                if fastest_option is None or option["eta"] < fastest_option["delivery_option"]["eta"]:
+                    fastest_option = {
+                        "pharmacy": pharmacy,
+                        "total_price": total_price,
+                        "delivery_option": option
+                    }
+
+    return {
+        "cheapest_delivery_option": cheapest_option,
+        "fastest_delivery_option": fastest_option
+    }
+
