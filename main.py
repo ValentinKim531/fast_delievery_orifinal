@@ -34,14 +34,11 @@ async def main_process(request: Request):
     sku_data = request_data.get("skus", [])  # List of SKU items
     address = request_data.get("address", {})  # User address
 
-    logger.info("City: %s, SKU Data: %s", encoded_city, sku_data)
-    logger.info("Address: %s", address)
 
     #Save the latitude and longitude of user
     user_adress = request_data.get("address", {}).get("lng")
     user_lat = request_data.get("address", {}).get("lat")
     user_lon = request_data.get("address", {}).get("lng")
-    logger.info("You sure: lat: %s  lon : %s", user_lat, user_lon)
     
     # Validate the incoming data
     if not encoded_city or not sku_data or user_lat is None or user_lon is None:
@@ -60,10 +57,8 @@ async def main_process(request: Request):
 
     #Get several pharmacies with cheapest sku's
     cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
-
     #Get 2 closest Pharmacies
     closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
-
     #Compare Check delivery price for 2 closest pharmacies and 3 cheapest pharmacies
     delivery_options1 = await get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
     delivery_options2 = await get_delivery_options(cheapest_pharmacies, user_lat, user_lon, sku_data)
