@@ -59,13 +59,15 @@ async def main_process(request: Request):
     filtered_pharmacies = await filter_pharmacies(pharmacies)
 
     #Get several pharmacies with cheapest sku's
-    #cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
+    cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
 
-    #Get 5 closest Pharmacies
+    #Get 2 closest Pharmacies
     closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
 
-    #Compare 5 closest Pharmacies to determine fastest and cheapest
-    result =await get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
+    #Compare Check delivery price for 2 closest pharmacies and 3 cheapest pharmacies
+    delivery_options1 = await get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
+    delivery_options2 = await get_delivery_options(cheapest_pharmacies, user_lat, user_lon, sku_data)
+    result = await best_option(delivery_options1, delivery_options2)
     return {"pharmacies": result}
 
 
@@ -102,10 +104,10 @@ async def get_top_cheapest_pharmacies(pharmacies):
     # Sort pharmacies by 'total_sum' in ascending order
     sorted_pharmacies = sorted(pharmacies.get("filtered_pharmacies", []), key=lambda x: x["total_sum"])
 
-    # Get the top 5 pharmacies with the lowest 'total_sum'
-    top_5_pharmacies = sorted_pharmacies[:5]
+    # Get the top 3 pharmacies with the lowest 'total_sum'
+    cheapest_pharmacies = sorted_pharmacies[:3]
 
-    return {"cheapest_pharmacies": top_5_pharmacies}
+    return {"list_pharmacies": cheapest_pharmacies}
 
 async def get_top_closest_pharmacies(pharmacies, user_lat, user_lon):
     # Create a list of pharmacies with their distance from the user
@@ -124,10 +126,10 @@ async def get_top_closest_pharmacies(pharmacies, user_lat, user_lon):
     # Sort pharmacies by distance
     sorted_pharmacies = sorted(pharmacies_with_distance, key=lambda x: x["distance"])
     
-    # Get the top 5 closest pharmacies
-    top_5_pharmacies = [item["pharmacy"] for item in sorted_pharmacies[:5]]
+    # Get the top 2 closest pharmacies
+    closest_pharmacies = [item["pharmacy"] for item in sorted_pharmacies[:2]]
     
-    return {"closest_pharmacies": top_5_pharmacies}
+    return {"list_pharmacies": closest_pharmacies}
 
 
 #Algorithm to determine distance in 2 dimensions
@@ -136,11 +138,11 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return distance
 
 
-async def get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data):
+async def get_delivery_options(pharmacies, user_lat, user_lon, sku_data):
     cheapest_option = None
     fastest_option = None
 
-    for pharmacy in closest_pharmacies["closest_pharmacies"]:
+    for pharmacy in pharmacies["list_pharmacies"]:
         # Build the POST request payload
         payload = {
             "items": sku_data,  # Pass the SKU data
@@ -185,3 +187,43 @@ async def get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
         "fastest_delivery_option": fastest_option
     }
 
+
+
+async def best_option(var1, var2):
+    # Initialize cheapest and fastest options
+    best_cheapest_option = None
+    best_fastest_option = None
+
+    # Get the cheapest and fastest options from var1 and var2
+    cheapest_option_1 = var1.get("cheapest_delivery_option")
+    fastest_option_1 = var1.get("fastest_delivery_option")
+    cheapest_option_2 = var2.get("cheapest_delivery_option")
+    fastest_option_2 = var2.get("fastest_delivery_option")
+
+    # Compare the cheapest options
+    if cheapest_option_1 and cheapest_option_2:
+        if cheapest_option_1["total_price"] <= cheapest_option_2["total_price"]:
+            best_cheapest_option = cheapest_option_1
+        else:
+            best_cheapest_option = cheapest_option_2
+    elif cheapest_option_1:
+        best_cheapest_option = cheapest_option_1
+    elif cheapest_option_2:
+        best_cheapest_option = cheapest_option_2
+
+    # Compare the fastest options
+    if fastest_option_1 and fastest_option_2:
+        if fastest_option_1["delivery_option"]["eta"] <= fastest_option_2["delivery_option"]["eta"]:
+            best_fastest_option = fastest_option_1
+        else:
+            best_fastest_option = fastest_option_2
+    elif fastest_option_1:
+        best_fastest_option = fastest_option_1
+    elif fastest_option_2:
+        best_fastest_option = fastest_option_2
+
+    # Return the best options
+    return {
+        "best_cheapest_option": best_cheapest_option,
+        "best_fastest_option": best_fastest_option
+    }
