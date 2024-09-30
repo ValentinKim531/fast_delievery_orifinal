@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import httpx
 import logging
 import math
+from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(level=logging.INFO)  
 logger = logging.getLogger(__name__)
@@ -16,6 +17,14 @@ url_price = "https://prod-backoffice.daribar.com/api/v2/delivery/prices"
 params_city = {}
 # Define the payload
 payload = []
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/best_options")
 async def main_process(request: Request):
@@ -50,10 +59,12 @@ async def main_process(request: Request):
     filtered_pharmacies = await filter_pharmacies(pharmacies)
 
     #Get several pharmacies with cheapest sku's
-    cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
+    #cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
 
+    #Get 5 closest Pharmacies
     closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
 
+    #Compare 5 closest Pharmacies to determine fastest and cheapest
     result =await get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
     return {"pharmacies": result}
 
