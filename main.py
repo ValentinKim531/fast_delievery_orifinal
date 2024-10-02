@@ -51,9 +51,15 @@ async def main_process(request: Request):
 
     # Perform the search for medicines in pharmacies
     pharmacies = await find_medicines_in_pharmacies(encoded_city, payload)
-
+    no_variants = False
     #Save only pharmacies with all sku's in stock
     filtered_pharmacies = await filter_pharmacies(pharmacies)
+
+    #If there is no pharmacy with full stockk
+    all_pharmacies_empty = not filtered_pharmacies.get("filtered_pharmacies")
+    if all_pharmacies_empty:
+        logger.info("No pharmacies")
+        return 0
 
     #Get several pharmacies with cheapest sku's
     cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
@@ -63,7 +69,7 @@ async def main_process(request: Request):
     delivery_options1 = await get_delivery_options(closest_pharmacies, user_lat, user_lon, sku_data)
     delivery_options2 = await get_delivery_options(cheapest_pharmacies, user_lat, user_lon, sku_data)
     result = await best_option(delivery_options1, delivery_options2)
-    return {"pharmacies": result}
+    return result
 
 
 
