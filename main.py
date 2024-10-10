@@ -7,14 +7,17 @@ import httpx
 import logging
 import math
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)  
 logger = logging.getLogger(__name__)
 app = FastAPI()
 
-url_search = "https://prod-backoffice.daribar.com/api/v2/products/search"
-url_price = "https://prod-backoffice.daribar.com/api/v2/delivery/prices"
-params_city = {}
+URL_SEARCH = os.getenv("URL_SEARCH")
+URL_PRICE = os.getenv("URL_PRICE")
+
 # Define the payload
 payload = []
 
@@ -55,7 +58,8 @@ async def main_process(request: Request):
     #Save only pharmacies with all sku's in stock
     filtered_pharmacies = await filter_pharmacies(pharmacies)
 
-    #If there is no pharmacy with full stockk
+
+    #If there is no pharmacy with full stock
     all_pharmacies_empty = not filtered_pharmacies.get("filtered_pharmacies")
     if all_pharmacies_empty:
         logger.info("No pharmacies")
@@ -72,11 +76,9 @@ async def main_process(request: Request):
     return result
 
 
-
-
 async def find_medicines_in_pharmacies(encoded_city, payload):
     async with httpx.AsyncClient() as client:
-        response = await client.post(url_search, params=params_city, json=payload)
+        response = await client.post(URL_SEARCH, params=encoded_city, json=payload)
         response.raise_for_status()  # Raise an error for bad responses
         return response.json()  # Return the JSON response
 
@@ -156,7 +158,7 @@ async def get_delivery_options(pharmacies, user_lat, user_lon, sku_data):
 
         # Send the POST request to the external endpoint
         async with httpx.AsyncClient() as client:
-            response = await client.post("https://prod-backoffice.daribar.com/api/v2/delivery/prices", json=payload)
+            response = await client.post(URL_PRICE, json=payload)
             response.raise_for_status()
             delivery_data = response.json()  # Parse the JSON response
 

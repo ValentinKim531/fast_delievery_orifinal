@@ -13,9 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Открываем порт (уже не указываем конкретное значение, он будет динамическим через ENV)
 EXPOSE ${PORT}
 
-# Определяем команду в зависимости от переменной окружения TYPE и PORT
-CMD if [ "$TYPE" = "fast" ]; then \
-        uvicorn main:app --host 0.0.0.0 --port ${PORT}; \
-    else \
-        python main.py; \
-    fi
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT}
