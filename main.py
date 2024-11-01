@@ -32,71 +32,99 @@ app.add_middleware(
 
 @app.post("/best_options")
 async def main_process(request: Request):
-    # Receive the front end data (city hash, sku's, user address)
-    request_data = await request.json()
-    encoded_city = request_data.get("city")  # Encoded city hash
-    sku_data = request_data.get("skus", [])  # List of SKU items
-    address = request_data.get("address", {})  # User address
+
+    try:
+        # Receive the front end data (city hash, sku's, user address)
+        request_data = await request.json()
+        encoded_city = request_data.get("city")  # Encoded city hash
+        sku_data = request_data.get("skus", [])  # List of SKU items
+        address = request_data.get("address", {})  # User address
 
 
-    #Save the latitude and longitude of user
-    user_adress = request_data.get("address", {}).get("lng")
-    user_lat = request_data.get("address", {}).get("lat")
-    user_lon = request_data.get("address", {}).get("lng")
-    
-    # Validate the incoming data
-    if not encoded_city or not sku_data or user_lat is None or user_lon is None:
-        return {"error": "City, SKU data, and user coordinates are required"}
-    if not encoded_city or not sku_data:
-        return {"error": "City and SKU data are required"}
+        #Save the latitude and longitude of user
+        user_lat = request_data.get("address", {}).get("lat")
+        user_lon = request_data.get("address", {}).get("lng")
 
-    # Build the payload
-    payload = [{"sku": item["sku"], "count_desired": item["count_desired"]} for item in sku_data]
+        # Validate the incoming data
+        if not encoded_city or not sku_data or user_lat is None or user_lon is None:
+            return JSONResponse(content={"error": "City, SKU data, and user coordinates are required"}, status_code=400)
 
-    # Perform the search for medicines in pharmacies
-    pharmacies = await find_medicines_in_pharmacies(encoded_city, payload)
-    no_variants = False
+        if not isinstance(user_lat, (int, float)) or not isinstance(user_lon, (int, float)):
+            return JSONResponse(content={"error": "Invalid data type for user coordinates"}, status_code=400)
 
-    #Save only pharmacies with all sku's in stock
-    filtered_pharmacies = await filter_pharmacies(pharmacies)
+        for item in sku_data:
+            if not isinstance(item.get("sku"), str) or not isinstance(item.get("count_desired"), int):
+                return JSONResponse(content={"error": "Invalid SKU format or count type"}, status_code=400)
 
+        # Build the payload
+        payload = [{"sku": item["sku"], "count_desired": item["count_desired"]} for item in sku_data]
 
-    #If there is no pharmacy with full stock
-    all_pharmacies_empty = not filtered_pharmacies.get("filtered_pharmacies")
-    if all_pharmacies_empty:
-        logger.info("No pharmacies")
-        return 0
+        # Perform the search for medicines in pharmacies
+        pharmacies = await find_medicines_in_pharmacies(encoded_city, payload)
 
-    #Get several pharmacies with cheapest sku's
-    cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
-    save_response_to_file(cheapest_pharmacies, file_name='data4_top_cheapest_pharmacies.json')
+        if not pharmacies.get("result"):
+            logger.error("No pharmacies found with the provided SKU data")
+            return JSONResponse(content={"error": "No pharmacies found with the provided SKU data in URL_SEARCH"}, status_code=404)
+        save_response_to_file(pharmacies, file_name='data1_found_all.json')
 
-    #Get 2 closest Pharmacies
-    closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
-    save_response_to_file(closest_pharmacies, file_name='data4_top_closest_pharmacies.json')
+        #Save only pharmacies with all sku's in stock
+        filtered_pharmacies = await filter_pharmacies(pharmacies)
+        if isinstance(filtered_pharmacies, JSONResponse):
+            return filtered_pharmacies  # Возвращаем JSONResponse сразу, если это ошибка
+        save_response_to_file(filtered_pharmacies, file_name='data2_filtered_pharmacies.json')
 
-    #Compare Check delivery price for 2 closest pharmacies and 3 cheapest pharmacies
-    delivery_options1 = await get_delivery_options(closest_pharmacies, user_lat, user_lon)
-    save_response_to_file(delivery_options1, file_name='data5_delivery_options_closest.json')
+        #Get several pharmacies with cheapest sku's
+        cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
+        save_response_to_file(cheapest_pharmacies, file_name='data4_top_cheapest_pharmacies.json')
 
-    delivery_options2 = await get_delivery_options(cheapest_pharmacies, user_lat, user_lon)
-    save_response_to_file(delivery_options2, file_name='data5_delivery_options_cheapest.json')
+        #Get 2 closest Pharmacies
+        closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
+        save_response_to_file(closest_pharmacies, file_name='data4_top_closest_pharmacies.json')
 
-    all_delivery_options = delivery_options1 + delivery_options2
-    save_response_to_file(all_delivery_options, file_name='data5_all_delivery_options.json')
+        #Compare Check delivery price for 2 closest pharmacies and 3 cheapest pharmacies
+        delivery_options1 = await get_delivery_options(closest_pharmacies, user_lat, user_lon)
+        if isinstance(delivery_options1, JSONResponse):
+            return delivery_options1  # Возвращаем JSONResponse сразу, если это ошибка
+        save_response_to_file(delivery_options1, file_name='data5_delivery_options_closest.json')
 
-    result = await best_option(all_delivery_options)
-    save_response_to_file(result, file_name='data6_final_result.json')
+        delivery_options2 = await get_delivery_options(cheapest_pharmacies, user_lat, user_lon)
+        if isinstance(delivery_options2, JSONResponse):
+            return delivery_options1  # Возвращаем JSONResponse сразу, если это ошибка
+        save_response_to_file(delivery_options2, file_name='data5_delivery_options_cheapest.json')
 
-    return result
+        all_delivery_options = delivery_options1 + delivery_options2
+        save_response_to_file(all_delivery_options, file_name='data5_all_delivery_options.json')
+
+        result = await best_option(all_delivery_options)
+        save_response_to_file(result, file_name='data6_final_result.json')
+
+        return result
+
+    except json.JSONDecodeError:
+        return JSONResponse(content={"error": "Invalid JSON format"}, status_code=400)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return JSONResponse(content={"error": "An unexpected error occurred"}, status_code=500)
 
 
 async def find_medicines_in_pharmacies(encoded_city, payload):
     async with httpx.AsyncClient() as client:
-        response = await client.post(URL_SEARCH, params=encoded_city, json=payload)
-        response.raise_for_status()  # Raise an error for bad responses
-        save_response_to_file(response.json(), file_name='data1_found_all.json')
-        return response.json()  # Return the JSON response
+        try:
+            response = await client.post(URL_SEARCH, params=encoded_city, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            # Проверка на наличие ожидаемых ключей в ответе
+            if not isinstance(data, dict) or "result" not in data:
+                return JSONResponse(content={"error": "Invalid response format from search API"}, status_code=502)
+            return data
+        except httpx.RequestError as e:
+            logger.error(f"Request error while accessing URL_SEARCH: {e}")
+            return JSONResponse(content={"error": "Request error while accessing search API"}, status_code=503)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error while accessing URL_SEARCH: {e}")
+            return JSONResponse(content={"error": f"HTTP error {e.response.status_code}"},
+                                status_code=e.response.status_code)
+
 
 
 # мок для тестирования локальных результатов поиска
@@ -109,13 +137,13 @@ async def find_medicines_in_pharmacies(encoded_city, payload):
 #         return data  # Возвращаем JSON данные
 
 
-#Save only pharmacies with all sku's in stock
+# Save only pharmacies with all sku's in stock
 async def filter_pharmacies(pharmacies):
     filtered_pharmacies = []
 
     for pharmacy in pharmacies.get("result", []):
         products = pharmacy.get("products", [])
-        
+
         # Check if all products meet their desired quantities
         all_available = all(
             product["quantity"] >= product["quantity_desired"]
@@ -125,8 +153,12 @@ async def filter_pharmacies(pharmacies):
         if all_available:
             filtered_pharmacies.append(pharmacy)
 
-    save_response_to_file(filtered_pharmacies, file_name='data2_filtered_pharmacies.json')
-    return {"filtered_pharmacies": filtered_pharmacies}
+        # Возвращаем ошибку, если ни одна аптека не соответствует запросу
+        return {"filtered_pharmacies": filtered_pharmacies} if filtered_pharmacies else JSONResponse(
+            content={
+                "error": "No pharmacies found matching the request (either due to requested medication quantities or invalid SKU(s))"},
+            status_code=404
+        )
 
 
 #Find pharmacies with cheapest "total_sum" fro sku's
@@ -184,9 +216,13 @@ def is_pharmacy_open_soon(closes_at, opens_at, opening_hours):
     if opening_hours == "Круглосуточно":
         return False  # Круглосуточная аптека не закроется скоро
 
-    # Конвертация времени открытия и закрытия в текущий часовой пояс
-    closes_time = datetime.strptime(closes_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
-    opens_time = datetime.strptime(opens_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
+    try:
+        # Конвертация времени открытия и закрытия
+        closes_time = datetime.strptime(closes_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
+        opens_time = datetime.strptime(opens_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
+    except ValueError as e:
+        logger.error(f"Time opens\closes parsing error: {e}")
+        return True  # Если ошибка, считаем, что аптека закрыта для избежания ошибок
 
     # Проверяем, если аптека еще не открылась
     if current_time < opens_time:
@@ -208,9 +244,13 @@ def is_pharmacy_closed(closes_at, opens_at, opening_hours):
     if opening_hours == "Круглосуточно":
         return False
 
-    # Конвертация времени открытия и закрытия
-    closes_time = datetime.strptime(closes_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
-    opens_time = datetime.strptime(opens_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
+    try:
+        # Конвертация времени открытия и закрытия
+        closes_time = datetime.strptime(closes_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
+        opens_time = datetime.strptime(opens_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC).astimezone(almaty_tz)
+    except ValueError as e:
+        logger.error(f"Time opens\closes parsing error: {e}")
+        return True  # Если ошибка, считаем, что аптека закрыта для избежания ошибок
 
     # Проверка если аптека закрыта сейчас и еще не открылась
     if current_time < opens_time:
@@ -226,6 +266,11 @@ def is_pharmacy_closed(closes_at, opens_at, opening_hours):
 
 async def get_delivery_options(pharmacies, user_lat, user_lon):
     """Функция возвращает все данные о доставке для аптек без принятия решений."""
+
+    # Проверка на наличие аптек
+    if not pharmacies.get("list_pharmacies"):
+        return JSONResponse(content={"error": "No pharmacies available for delivery options"}, status_code=404)
+
     results = []
 
     for pharmacy in pharmacies["list_pharmacies"]:
@@ -261,7 +306,9 @@ async def get_delivery_options(pharmacies, user_lat, user_lon):
                 response = await client.post(URL_PRICE, json=payload)
                 response.raise_for_status()
                 delivery_data = response.json()
-                print(f"delivery_data: {delivery_data}")
+
+                logger.info(f"Response from URL_PRICE: {delivery_data}")
+
                 if delivery_data.get("status") == "success":
                     delivery_options = delivery_data["result"]["delivery"]
 
@@ -271,17 +318,43 @@ async def get_delivery_options(pharmacies, user_lat, user_lon):
                             "total_price": pharmacy_total_sum + option["price"],
                             "delivery_option": option
                         })
+                else:
+                    logger.error(f"Unexpected response format from URL_PRICE API: {delivery_data}")
+                    return JSONResponse(
+                        content={"error": "Unexpected response format from URL_PRICE API", "details": delivery_data},
+                        status_code=502
+                    )
 
             except httpx.RequestError as e:
-                print(f"An error occurred while requesting {'URL_PRICE'}: {e}")
+                logger.error(f"Request error while accessing URL_PRICE: {e}")
+                return JSONResponse(content={"error": "Request error while accessing URL_PRICE", "details": str(e)},
+                                    status_code=502)
+
             except httpx.HTTPStatusError as e:
-                print(f"Error response {e.response.status_code} while requesting {'URL_PRICE'}: {e}")
+                error_details = e.response.json() if e.response.content else {"error": str(e)}
+                logger.error(f"HTTP error while accessing URL_PRICE: {e}")
+                return JSONResponse(
+                    content={
+                        "error": f"HTTP error {e.response.status_code}",
+                        "details": error_details
+                    },
+                    status_code=e.response.status_code
+                )
 
     return results
 
 
 async def best_option(delivery_data):
     """Функция для сравнения аптек и выбора лучших опций с учетом времени закрытия, цены и условий."""
+
+    # Проверка наличия данных о доставке
+    if not delivery_data:
+        return JSONResponse(content={"error": "No delivery options found"}, status_code=404)
+
+    # Проверка корректности формата данных
+    for option in delivery_data:
+        if "pharmacy" not in option or "total_price" not in option or "delivery_option" not in option:
+            return JSONResponse(content={"error": "Invalid delivery option data format"}, status_code=502)
 
     cheapest_open_pharmacy = None
     cheapest_closed_pharmacy = None
@@ -421,6 +494,12 @@ async def best_option(delivery_data):
 #  функция для проверки выбранных на каждой стадии отбора аптек (сохраняет списки аптек в файлы локально)
 def save_response_to_file(data, file_name='data.json'):
     try:
+        # Проверяем, является ли data объектом JSONResponse
+        if isinstance(data, JSONResponse):
+            # Преобразуем тело JSONResponse в JSON-формат
+            data = data.body.decode('utf-8')  # Декодируем из байтов в строку
+            data = json.loads(data)  # Преобразуем строку в JSON-объект
+
         # Сохраняем данные в файл
         with open(file_name, 'w', encoding='utf-8') as file:
             json.dump(data, file, ensure_ascii=False, indent=4)
