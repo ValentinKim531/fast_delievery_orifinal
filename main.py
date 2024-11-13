@@ -153,12 +153,12 @@ async def filter_pharmacies(pharmacies):
         if all_available:
             filtered_pharmacies.append(pharmacy)
 
-        # Возвращаем ошибку, если ни одна аптека не соответствует запросу
-        return {"filtered_pharmacies": filtered_pharmacies} if filtered_pharmacies else JSONResponse(
-            content={
-                "error": "No pharmacies found matching the request (either due to requested medication quantities or invalid SKU(s))"},
-            status_code=404
-        )
+    # Возвращаем ошибку, если ни одна аптека не соответствует запросу
+    return {"filtered_pharmacies": filtered_pharmacies} if filtered_pharmacies else JSONResponse(
+        content={
+            "error": "No pharmacies found matching the request (either due to requested medication quantities or invalid SKU(s))"},
+        status_code=404
+    )
 
 
 #Find pharmacies with cheapest "total_sum" fro sku's
