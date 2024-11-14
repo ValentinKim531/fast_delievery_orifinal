@@ -107,10 +107,11 @@ async def main_process(request: Request):
         return JSONResponse(content={"error": "An unexpected error occurred"}, status_code=500)
 
 
+
 async def find_medicines_in_pharmacies(encoded_city, payload):
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(URL_SEARCH, params=encoded_city, json=payload)
+            response = await client.post(URL_SEARCH, params={"city": encoded_city}, json=payload)
             response.raise_for_status()
             data = response.json()
             # Проверка на наличие ожидаемых ключей в ответе
@@ -124,6 +125,82 @@ async def find_medicines_in_pharmacies(encoded_city, payload):
             logger.error(f"HTTP error while accessing URL_SEARCH: {e}")
             return JSONResponse(content={"error": f"HTTP error {e.response.status_code}"},
                                 status_code=e.response.status_code)
+
+#
+# # Константа для корректировки количества
+# QUANTITY_ADJUSTMENT = 1  # Увеличиваем количество на 1 для каждого товара для поиска
+#
+# async def find_medicines_in_pharmacies(encoded_city, payload):
+#
+#
+#     if isinstance(payload, list):
+#         # Увеличиваем count_desired на QUANTITY_ADJUSTMENT для каждого элемента в списке
+#         print(f"payload before adjustment: {payload}")
+#         for sku in payload:
+#             if isinstance(sku, dict) and "count_desired" in sku:
+#                 sku["count_desired"] += QUANTITY_ADJUSTMENT
+#         print(f"payload after adjustment: {payload}")
+#     else:
+#         # Логирование ошибки структуры payload
+#         logger.error("Payload должен быть списком словарей с ключом 'count_desired'.")
+#
+#     async with httpx.AsyncClient() as client:
+#         try:
+#             response = await client.post(URL_SEARCH, params={"city": encoded_city}, json=payload)
+#             response.raise_for_status()
+#             data = response.json()
+#             save_response_to_file(data, file_name='data_pharmacies.json')
+#
+#             # Проверка корректности данных от API
+#             if not isinstance(data, dict) or "result" not in data:
+#                 return JSONResponse(content={"error": "Invalid response format from search API"}, status_code=502)
+#
+#             # Применяем корректировку после получения данных
+#             for pharmacy in data.get("result", []):
+#                 # Проверка, что source_tags - это список
+#                 source_tags = pharmacy.get("source", {}).get("source_tags", [])
+#                 has_stock_tag = False
+#                 stock_meta_value = None
+#
+#                 if isinstance(source_tags, list):
+#                     for tag in source_tags:
+#                         if isinstance(tag, dict) and tag.get("id") == 1080:
+#                             has_stock_tag = True
+#                             stock_meta_value = tag.get("meta")
+#                             break
+#
+#                 # Корректируем каждый товар в зависимости от правил
+#                 for product in pharmacy.get("products", []):
+#                     if not isinstance(product, dict):
+#                         continue  # Пропустить, если структура продукта некорректна
+#
+#                     original_count_desired = product.get("count_desired", 0)
+#                     original_quantity = product.get("quantity", 0)
+#
+#                     if has_stock_tag and stock_meta_value == "0":
+#                         # Если есть тег с id 1080 и meta == "0"
+#                         if original_count_desired == original_quantity:
+#                             # Оба значения равны, уменьшаем и count_desired, и quantity
+#                             product["count_desired"] = max(0, original_count_desired - QUANTITY_ADJUSTMENT)
+#                             product["quantity"] = max(0, original_quantity - QUANTITY_ADJUSTMENT)
+#                         else:
+#                             # Уменьшаем только count_desired
+#                             product["count_desired"] = max(0, original_count_desired - QUANTITY_ADJUSTMENT)
+#                     else:
+#                         # Нет тега с id 1080 или он отсутствует, уменьшаем оба значения
+#                         product["count_desired"] = max(0, original_count_desired - QUANTITY_ADJUSTMENT)
+#                         product["quantity"] = max(0, original_quantity - QUANTITY_ADJUSTMENT)
+#
+#             return data
+#
+#         except httpx.RequestError as e:
+#             logger.error(f"Request error while accessing URL_SEARCH: {e}")
+#             return JSONResponse(content={"error": "Request error while accessing search API"}, status_code=503)
+#         except httpx.HTTPStatusError as e:
+#             logger.error(f"HTTP error while accessing URL_SEARCH: {e}")
+#             return JSONResponse(content={"error": f"HTTP error {e.response.status_code}"}, status_code=e.response.status_code)
+#
+
 
 
 
