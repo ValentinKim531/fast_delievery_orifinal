@@ -73,23 +73,34 @@ async def main_process(request: Request):
             return filtered_pharmacies  # Возвращаем JSONResponse сразу, если это ошибка
         save_response_to_file(filtered_pharmacies, file_name='data2_filtered_pharmacies.json')
 
-        #Get several pharmacies with cheapest sku's
-        cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
-        save_response_to_file(cheapest_pharmacies, file_name='data4_top_cheapest_pharmacies.json')
+        # Get several pharmacies with cheapest SKU's
+        initial_cheapest_pharmacies = await get_top_cheapest_pharmacies(filtered_pharmacies)
+        save_response_to_file(initial_cheapest_pharmacies, file_name='data4_top_cheapest_pharmacies.json')
 
-        #Get 2 closest Pharmacies
-        closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
-        save_response_to_file(closest_pharmacies, file_name='data4_top_closest_pharmacies.json')
+        # Get 2 closest Pharmacies
+        initial_closest_pharmacies = await get_top_closest_pharmacies(filtered_pharmacies, user_lat, user_lon)
+        save_response_to_file(initial_closest_pharmacies, file_name='data4_top_closest_pharmacies.json')
+
+        # Убедимся, что среди выбранных аптек есть круглосуточные
+        updated_cheapest_pharmacies, updated_closest_pharmacies = await ensure_24h_pharmacies(
+            filtered_pharmacies["filtered_pharmacies"],
+            initial_cheapest_pharmacies,
+            initial_closest_pharmacies,
+            user_lat,
+            user_lon,
+        )
+        save_response_to_file(updated_cheapest_pharmacies, file_name='data4.1_updated_top_cheapest_pharmacies.json')
+        save_response_to_file(updated_closest_pharmacies, file_name='data4_2_updated_top_closest_pharmacies.json')
 
         #Compare Check delivery price for 2 closest pharmacies and 3 cheapest pharmacies
-        delivery_options1 = await get_delivery_options(closest_pharmacies, user_lat, user_lon)
+        delivery_options1 = await get_delivery_options(updated_closest_pharmacies, user_lat, user_lon)
         if isinstance(delivery_options1, JSONResponse):
             return delivery_options1  # Возвращаем JSONResponse сразу, если это ошибка
         save_response_to_file(delivery_options1, file_name='data5_delivery_options_closest.json')
 
-        delivery_options2 = await get_delivery_options(cheapest_pharmacies, user_lat, user_lon)
+        delivery_options2 = await get_delivery_options(updated_cheapest_pharmacies, user_lat, user_lon)
         if isinstance(delivery_options2, JSONResponse):
-            return delivery_options1  # Возвращаем JSONResponse сразу, если это ошибка
+            return delivery_options2  # Возвращаем JSONResponse сразу, если это ошибка
         save_response_to_file(delivery_options2, file_name='data5_delivery_options_cheapest.json')
 
         all_delivery_options = delivery_options1 + delivery_options2
@@ -275,6 +286,56 @@ async def get_top_closest_pharmacies(pharmacies, user_lat, user_lon):
     return {"list_pharmacies": closest_pharmacies}
 
 
+async def get_24h_pharmacies(filtered_pharmacies):
+    """Возвращает только круглосуточные аптеки из списка."""
+
+    return [
+        pharmacy for pharmacy in filtered_pharmacies
+        if "круглосуточно" in pharmacy.get("source", {}).get("opening_hours", "").lower()
+    ]
+async def ensure_24h_pharmacies(
+    filtered_pharmacies, cheapest_pharmacies, closest_pharmacies, user_lat, user_lon
+):
+    """
+    Проверяет наличие круглосуточных аптек в каждом из списков (дешевых и близких)
+    и добавляет их, если отсутствуют.
+    """
+    # Получаем список всех круглосуточных аптек
+    all_24h_pharmacies = await get_24h_pharmacies(filtered_pharmacies)
+
+
+    if all_24h_pharmacies:
+        # Проверяем, есть ли круглосуточная аптека среди близких
+        has_24h_in_cheapest = any(
+            "круглосуточно" in pharmacy.get("source", {}).get("opening_hours", "").lower()
+            for pharmacy in cheapest_pharmacies["list_pharmacies"]
+        )
+
+        if not has_24h_in_cheapest:
+            # Находим самую дешевую круглосуточную аптеку
+            cheapest_24h_pharmacy = min(all_24h_pharmacies, key=lambda x: x["total_sum"])
+            if cheapest_24h_pharmacy not in cheapest_pharmacies["list_pharmacies"]:
+                cheapest_pharmacies["list_pharmacies"].append(cheapest_24h_pharmacy)
+
+        has_24h_in_closest = any(
+            "круглосуточно" in pharmacy.get("source", {}).get("opening_hours", "").lower()
+            for pharmacy in closest_pharmacies["list_pharmacies"]
+        )
+
+        if not has_24h_in_closest:
+            # Находим самую близкую круглосуточную аптеку
+            closest_24h_pharmacy = min(
+                all_24h_pharmacies,
+                key=lambda x: haversine_distance(
+                    user_lat, user_lon, x["source"]["lat"], x["source"]["lon"]
+                ),
+            )
+            if closest_24h_pharmacy not in closest_pharmacies["list_pharmacies"]:
+                closest_pharmacies["list_pharmacies"].append(closest_24h_pharmacy)
+
+    return cheapest_pharmacies, closest_pharmacies
+
+
 #Algorithm to determine distance in 2 dimensions
 def haversine_distance(lat1, lon1, lat2, lon2):
     distance = math.sqrt((lat2 - lat1) ** 2 + (lon2 - lon1) ** 2)
@@ -287,11 +348,11 @@ def is_pharmacy_open_soon(closes_at, opens_at, opening_hours):
     current_time = datetime.now(almaty_tz)
 
     # Мок для тестов (замените на текущую дату при работе в продакшн)
-    # current_time = almaty_tz.localize(datetime(2024, 10, 21, 22, 30, 0))
+    # current_time = almaty_tz.localize(datetime(2024, 12, 6, 3, 0, 0))
 
-    # Проверка для круглосуточных аптек
-    if opening_hours == "Круглосуточно":
-        return False  # Круглосуточная аптека не закроется скоро
+    # Проверка, если аптека круглосуточная
+    if "круглосуточно" in (opening_hours.lower() or ""):
+        return False
 
     try:
         # Конвертация времени открытия и закрытия
@@ -315,10 +376,10 @@ def is_pharmacy_closed(closes_at, opens_at, opening_hours):
     current_time = datetime.now(almaty_tz)
 
     # Мок для тестов (замените на текущую дату при работе в продакшн)
-    # current_time = almaty_tz.localize(datetime(2024, 10, 21, 22, 30, 0))
+    # current_time = almaty_tz.localize(datetime(2024, 12, 6, 3, 0, 0))
 
     # Проверка, если аптека круглосуточная
-    if opening_hours == "Круглосуточно":
+    if "круглосуточно" in (opening_hours.lower() or ""):
         return False
 
     try:
@@ -367,7 +428,6 @@ async def get_delivery_options(pharmacies, user_lat, user_lon):
 
         if not items:
             continue
-        print(f"items: {items}")
         # Формируем запрос для расчета доставки
         payload = {
             "items": items,
@@ -383,8 +443,6 @@ async def get_delivery_options(pharmacies, user_lat, user_lon):
                 response = await client.post(URL_PRICE, json=payload)
                 response.raise_for_status()
                 delivery_data = response.json()
-
-                logger.info(f"Response from URL_PRICE: {delivery_data}")
 
                 if delivery_data.get("status") == "success":
                     delivery_options = delivery_data["result"]["delivery"]
@@ -404,19 +462,33 @@ async def get_delivery_options(pharmacies, user_lat, user_lon):
 
             except httpx.RequestError as e:
                 logger.error(f"Request error while accessing URL_PRICE: {e}")
-                return JSONResponse(content={"error": "Request error while accessing URL_PRICE", "details": str(e)},
-                                    status_code=502)
+                results.append({
+                    "pharmacy": pharmacy,
+                    "total_price": pharmacy_total_sum,
+                    "delivery_option": None
+                })
+                continue
+                # return JSONResponse(content={"error": "Request error while accessing URL_PRICE", "details": str(e)},
+                #                     status_code=502)
 
             except httpx.HTTPStatusError as e:
                 error_details = e.response.json() if e.response.content else {"error": str(e)}
                 logger.error(f"HTTP error while accessing URL_PRICE: {e}")
-                return JSONResponse(
-                    content={
-                        "error": f"HTTP error {e.response.status_code}",
-                        "details": error_details
-                    },
-                    status_code=e.response.status_code
-                )
+
+                results.append({
+                    "pharmacy": pharmacy,
+                    "total_price": pharmacy_total_sum,
+                    "delivery_option": None
+                })
+                continue
+
+                # return JSONResponse(
+                #     content={
+                #         "error": f"HTTP error {e.response.status_code}",
+                #         "details": error_details
+                #     },
+                #     status_code=e.response.status_code
+                # )
 
     return results
 
@@ -427,6 +499,39 @@ async def best_option(delivery_data):
     # Проверка наличия данных о доставке
     if not delivery_data:
         return JSONResponse(content={"error": "No delivery options found"}, status_code=404)
+
+    # Проверяем, если все delivery_option равны None
+    if all(option["delivery_option"] is None for option in delivery_data):
+        # Сортируем аптеки по total_sum без учета круглосуточности
+        sorted_pharmacies = sorted(delivery_data, key=lambda x: x["pharmacy"].get("total_sum", float("inf")))
+
+        # Находим самую дешевую аптеку
+        cheapest_pharmacy = sorted_pharmacies[0]  # Первая в списке — самая дешевая
+
+        # Фильтруем только круглосуточные аптеки
+        round_the_clock_pharmacies = [
+            option for option in delivery_data
+            if "круглосуточно" in option["pharmacy"]["source"].get("opening_hours", "").lower()
+        ]
+
+        # Находим самую дешевую круглосуточную аптеку
+        fastest_pharmacy = min(
+            round_the_clock_pharmacies,
+            key=lambda x: x["pharmacy"].get("total_sum", float("inf"))
+        )
+
+        return {
+            "cheapest_delivery_option": {
+                "pharmacy": cheapest_pharmacy["pharmacy"],
+                "delivery_option": None
+            },
+            "alternative_cheapest_option": None,
+            "fastest_delivery_option": {
+                "pharmacy": fastest_pharmacy["pharmacy"],
+                "delivery_option": None
+            },
+            "alternative_fastest_option": None
+        }
 
     # Проверка корректности формата данных
     for option in delivery_data:
@@ -525,27 +630,27 @@ async def best_option(delivery_data):
             continue
 
         pharmacy_closed = is_pharmacy_closed(closes_at, opens_at, opening_hours)
-
         if pharmacy_closed and cheapest_open_pharmacy:
-            logger.info(
-                f"Checking closed pharmacy {source['code']} with total price {option['total_price']} against cheapest_open_pharmacy: {cheapest_open_pharmacy['total_price']}")
 
             if option["total_price"] <= cheapest_open_pharmacy["total_price"] * 0.7:
                 if cheapest_closed_pharmacy is None or option["total_price"] < cheapest_closed_pharmacy["total_price"]:
                     cheapest_closed_pharmacy = option
 
-            logger.info(f"Closed pharmacy {source['code']} is not 30% cheaper than the open one.")
-
         if pharmacy_closed and fastest_open_pharmacy:
-            logger.info(
-                f"Checking closed pharmacy {source['code']} with eta {option['delivery_option']['eta']} against fastest_open_pharmacy eta: {fastest_open_pharmacy['delivery_option']['eta']}")
 
             if option["delivery_option"]["eta"] <= fastest_open_pharmacy["delivery_option"]["eta"] * 0.7:
                 if fastest_closed_pharmacy is None or option["delivery_option"]["eta"] < \
                         fastest_closed_pharmacy["delivery_option"]["eta"]:
                     fastest_closed_pharmacy = option
 
-            logger.info(f"Closed pharmacy {source['code']} is not 30% faster than the open one.")
+        if pharmacy_closed and not cheapest_open_pharmacy:
+            if cheapest_closed_pharmacy is None or option["total_price"] < cheapest_closed_pharmacy["total_price"]:
+                cheapest_closed_pharmacy = option
+
+        if pharmacy_closed and not fastest_open_pharmacy:
+            if fastest_closed_pharmacy is None or option["delivery_option"]["eta"] < \
+                    fastest_closed_pharmacy["delivery_option"]["eta"]:
+                fastest_closed_pharmacy = option
 
 
     if cheapest_closed_pharmacy and cheapest_open_pharmacy:
@@ -556,6 +661,16 @@ async def best_option(delivery_data):
             "fastest_delivery_option": fastest_open_pharmacy,
             "alternative_fastest_option": fastest_closed_pharmacy
         }
+    # Если открытых аптек нет, а закрытые аптеки найдены
+    elif not cheapest_open_pharmacy and not fastest_open_pharmacy and cheapest_closed_pharmacy and fastest_closed_pharmacy:
+        logger.info("No open pharmacies found, returning only closed pharmacies as cheapest and fastest options")
+        return {
+            "cheapest_delivery_option": cheapest_closed_pharmacy,
+            "alternative_cheapest_option": None,
+            "fastest_delivery_option": fastest_closed_pharmacy,
+            "alternative_fastest_option": None
+        }
+
 
     logger.info(
         f"Step 8: Returning the standard results"
